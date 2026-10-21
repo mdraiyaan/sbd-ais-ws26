@@ -1,92 +1,73 @@
--- Exercise 2: Operational Data Plane with OLTPs
--- Course: Software Architectures for Big Data
-
 \timing on
 
--- ========================================================
--- Activity 2.1 — E-commerce Analytical Queries
--- ========================================================
-
-DROP TABLE IF EXISTS orders;
-
-CREATE TABLE orders (
-    customer_name TEXT,
-    product_category TEXT,
-    quantity INT,
-    price_per_unit NUMERIC(10, 2),
-    order_date DATE,
-    country TEXT
+-- setup orders table
+drop table if exists orders;
+create table orders (
+    customer_name text,
+    product_category text,
+    quantity int,
+    price_per_unit numeric,
+    order_date date,
+    country text
 );
 
-\COPY orders FROM '/data/orders_1M.csv' WITH CSV HEADER;
+\copy orders from '/data/orders_1M.csv' with csv header;
 
--- A. Highest price per unit
-SELECT * 
-FROM orders 
-ORDER BY price_per_unit DESC 
-LIMIT 1;
+-- 2.1 A: highest unit price
+select * from orders order by price_per_unit desc limit 1;
 
--- B. Top 3 categories by total quantity
-SELECT product_category, SUM(quantity) AS total_sold
-FROM orders
-GROUP BY product_category
-ORDER BY total_sold DESC
-LIMIT 3;
+-- 2.1 B: top 3 categories by total quantity
+select product_category, sum(quantity)
+from orders
+group by product_category
+order by sum(quantity) desc
+limit 3;
 
--- C. Revenue per category
-SELECT product_category, ROUND(SUM(price_per_unit * quantity), 2) AS revenue
-FROM orders
-GROUP BY product_category
-ORDER BY revenue DESC;
+-- 2.1 C: total revenue per category
+select product_category, sum(price_per_unit * quantity) as revenue
+from orders
+group by product_category
+order by revenue desc;
 
--- D. Top 5 customers by spending
-SELECT customer_name, COUNT(*) AS num_orders, ROUND(SUM(price_per_unit * quantity), 2) AS total_spent
-FROM orders
-GROUP BY customer_name
-ORDER BY total_spent DESC
-LIMIT 5;
+-- 2.1 D: top 5 customers by spending
+select customer_name, count(*), sum(price_per_unit * quantity) as total_spent
+from orders
+group by customer_name
+order by total_spent desc
+limit 5;
 
 
--- ========================================================
--- Activity 2.2 — Self-Join Analysis
--- ========================================================
+-- 2.2 self join
+-- smaller tables for testing
+create table people_50k as select * from people_big where id <= 50000;
+create table people_100k as select * from people_big where id <= 100000;
+create table people_200k as select * from people_big where id <= 200000;
 
--- Step 1: Create smaller tables to test scaling
-DROP TABLE IF EXISTS people_50k;
-DROP TABLE IF EXISTS people_100k;
-DROP TABLE IF EXISTS people_200k;
+-- step 1 queries
+select count(*) from people_50k p1 join people_50k p2 on p1.country = p2.country;
+select count(*) from people_100k p1 join people_100k p2 on p1.country = p2.country;
+select count(*) from people_200k p1 join people_200k p2 on p1.country = p2.country;
 
-CREATE TABLE people_50k  AS SELECT * FROM people_big WHERE id <= 50000;
-CREATE TABLE people_100k AS SELECT * FROM people_big WHERE id <= 100000;
-CREATE TABLE people_200k AS SELECT * FROM people_big WHERE id <= 200000;
+-- step 2 index test
+create index on people_100k(country);
+analyze people_100k;
 
--- Measurements:
-SELECT COUNT(*) FROM people_50k  p1 JOIN people_50k  p2 ON p1.country = p2.country;
-SELECT COUNT(*) FROM people_100k p1 JOIN people_100k p2 ON p1.country = p2.country;
-SELECT COUNT(*) FROM people_200k p1 JOIN people_200k p2 ON p1.country = p2.country;
+explain analyze
+select count(*) from people_100k p1 join people_100k p2 on p1.country = p2.country;
 
--- Step 2: Index test on people_100k
-CREATE INDEX idx_country ON people_100k(country);
-ANALYZE people_100k;
+-- step 3 rewrite
+-- test on 100k
+select sum(cnt * cnt)
+from (
+    select country, count(*)::bigint as cnt
+    from people_100k
+    group by country
+) s;
 
-EXPLAIN ANALYZE
-SELECT COUNT(*)
-FROM people_100k p1
-JOIN people_100k p2 ON p1.country = p2.country;
-
--- Step 3: Query rewrite without join
--- Test on 100k:
-SELECT SUM(cnt * cnt)
-FROM (
-    SELECT country, COUNT(*)::BIGINT AS cnt
-    FROM people_100k
-    GROUP BY country
-) sub;
-
--- Run on full 1M table:
-SELECT SUM(cnt * cnt)
-FROM (
-    SELECT country, COUNT(*)::BIGINT AS cnt
-    FROM people_big
-    GROUP BY country
-) sub;
+-- run on full 1M
+select sum(cnt * cnt)
+from (
+    select country, count(*)::bigint as cnt
+    from people_big
+    group by country
+) s;
