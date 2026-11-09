@@ -92,14 +92,20 @@ class KafkaSink:
 
     def __init__(self, args):
         from confluent_kafka import Producer
+        self.topic = "readings"
         self.producer = Producer({
             "bootstrap.servers": args.bootstrap,
-            # TODO: more settings?
+            "partitioner": "murmur2_random",
+            "linger.ms": 10,
+            "acks": "1",
         })
 
     def send(self, reading):
-        # TODO: send the reading (as JSON) to Kafka: self.producer.produce(...)
-        raise NotImplementedError("KafkaSink.send() is part of your solution (Stage C1)")
+        self.producer.produce(
+            self.topic,
+            key=reading["machine_id"],
+            value=json.dumps(reading),
+        )
 
     def tick(self):
         """Called once per tick, after all readings of that tick were sent."""
